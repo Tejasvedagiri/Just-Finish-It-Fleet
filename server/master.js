@@ -56,7 +56,11 @@ function staticResponse(reqPath) {
       "cd frontend && npm install && npm run build"
     ) };
   }
-  const rel = path.normalize(reqPath).replace(/^(\.\.[/\\])+/, "").replace(/^\/+/, "") || "index.html";
+  // Both slash kinds: on Windows path.normalize turns "/assets/x.js" into
+  // "\assets\x.js", which path.resolve reads as drive-root-absolute -- every
+  // asset then fell back to index.html (served as text/html, so the browser
+  // refused the module script and the page stayed blank).
+  const rel = path.normalize(reqPath).replace(/^(\.\.[/\\])+/, "").replace(/^[/\\]+/, "") || "index.html";
   let candidate = path.resolve(FRONTEND_DIST, rel);
   let isFallback = false;
   if (!candidate.startsWith(path.resolve(FRONTEND_DIST)) || !fs.existsSync(candidate) || fs.statSync(candidate).isDirectory()) {

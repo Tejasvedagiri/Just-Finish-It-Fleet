@@ -87,9 +87,7 @@ button { font-family: inherit; cursor: pointer; }
 .phase-dist { display: flex; height: 22px; border: 1px solid var(--line-soft); overflow: hidden; margin-bottom: 8px; }
 .pd-seg { display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 700; }
 .pd-seg.planner { background: var(--amber); color: var(--pd-text-on-amber); }
-.pd-seg.product_owner { background: var(--purple); color: var(--pd-text-on-amber); }
 .pd-seg.imp { background: var(--accent); color: var(--pd-text-on-accent); }
-.pd-seg.testing { background: var(--blue); color: var(--pd-text-on-blue); }
 .pd-seg.reviewer { background: var(--red); color: var(--pd-text-on-red); }
 .pd-seg.cleanup { background: var(--ink-faint); color: var(--pd-text-on-faint); }
 .pd-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 10px; color: var(--ink-faint); }
@@ -395,3 +393,16 @@ button { font-family: inherit; cursor: pointer; }
 .log-ln.log-SYSTEM { color: var(--ink-faint); }
 
 footer { color: var(--ink-faint); font-size: 11px; text-align: center; padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--line); }
+
+/* Task | Judge sub-tab (renderJudgePanel). */
+.jt-wrap { max-height: 70vh; border: none; }
+.jt-table td.jt-task { max-width: 560px; color: var(--ink); }
+.jt-table tr.jt-current td { background: var(--bg-card); }
+.jt-table tr.jt-current td:first-child { box-shadow: inset 2px 0 0 var(--red); }
+.jt-v { font-weight: 600; }
+.jt-good { color: var(--accent); } .jt-breakdown { color: var(--amber); } .jt-redo { color: var(--red); }
+.jt-extra > summary { cursor: pointer; list-style: none; }
+.jt-extra > summary::-webkit-details-marker { display: none; }
+.jt-extra > summary span:first-child::before { content: "▸ "; }
+.jt-extra[open] > summary span:first-child::before { content: "▾ "; }
+.jt-extra .db-table td { max-width: 720px; }

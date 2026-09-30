@@ -9,24 +9,24 @@
 
 import { THEME_PRESETS, THEME_ORDER, THEME_LABELS, deriveTokens } from "./themes.js";
 
-const PHASES = ["planner", "product_owner", "imp", "testing", "reviewer", "cleanup"];
-const PHASE_LABELS = {
-  planner: "Planner", product_owner: "Product Owner", imp: "Implement",
-  testing: "Testing", reviewer: "Reviewer", cleanup: "Cleanup",
-};
+// Mirrors JFI's runner.PHASES (the v2 pipeline; v1's product_owner and
+// testing phases were removed there).
+const PHASES = ["planner", "imp", "reviewer", "cleanup"];
+const PHASE_LABELS = { planner: "Planner", imp: "Implement", reviewer: "Reviewer", cleanup: "Cleanup" };
+const PHASE_COLORS = { planner: "amber", imp: "accent", reviewer: "red", cleanup: "ink-faint" };
 const DEFAULT_THEME = "dark-ocean";
 
 const state = { sessions: {}, activity: [], connected: false };
 let activeTab = "fleet";
 let selectedKey = null;
-let sessionSubTab = "overview"; // "overview" | "checklist" -- sub-tabs within the Session tab
+let sessionSubTab = "overview"; // "overview" | "checklist" | "judge" -- sub-tabs within the Session tab
 
 // Must match JFI.tool.db_browse.table_registry()'s own key set (Python) --
 // this is just the picklist of names for the "Session DB" tab below; the
 // actual query logic lives entirely on the session side (see
 // socket_reporter.py's _handle_db_query), this side never runs SQL itself.
 const DB_TABLES = [
-  "ActivityEvent", "BackgroundProcess", "ContextEntry", "DonePhase", "HistoryMessage",
+  "BackgroundProcess", "ContextEntry", "DonePhase", "HistoryMessage",
   "ImplementedFile", "Leaf", "LogEvent", "QueuedItem", "SessionNote", "SessionRecord", "UnlockedTool",
 ];
 let dbTable = DB_TABLES[0];
@@ -377,7 +377,7 @@ function renderFleetTab(entries) {
         ${PHASES.map((p) => (counts[p] ? `<div class="pd-seg ${p}" style="width:${(counts[p] / total) * 100}%">${counts[p]}</div>` : "")).join("")}
       </div>
       <div class="pd-legend">
-        ${PHASES.map((p) => `<span><span class="sw" style="background:var(--${p === "planner" ? "amber" : p === "product_owner" ? "purple" : p === "imp" ? "accent" : p === "testing" ? "blue" : p === "reviewer" ? "red" : "ink-faint"})"></span>${PHASE_LABELS[p]}</span>`).join("")}
+        ${PHASES.map((p) => `<span><span class="sw" style="background:var(--${PHASE_COLORS[p]})"></span>${PHASE_LABELS[p]}</span>`).join("")}
       </div>
     </div>
   `;
@@ -631,6 +631,8 @@ function renderSessionTab(entries) {
       <div id="sd-subtabs"></div>
       ${sessionSubTab === "checklist"
         ? `<div id="sd-checklist"></div>`
+        : sessionSubTab === "judge"
+        ? `<div id="sd-judge"></div>`
         : `
           <div id="sd-timeline"></div>
           <div id="sd-progress"></div>
@@ -707,11 +709,12 @@ function renderSessionTab(entries) {
 
   paintSection(
     "sd-subtabs",
-    JSON.stringify([sessionSubTab, plan]),
+    JSON.stringify([sessionSubTab, plan, d.plan_detail?.rows?.length]),
     () => `
       <div class="subtab-bar">
         <button class="subtab-btn ${sessionSubTab === "overview" ? "active" : ""}" data-subtab="overview">Overview</button>
         <button class="subtab-btn ${sessionSubTab === "checklist" ? "active" : ""}" data-subtab="checklist">Plan checklist${plan ? ` · ${plan[0]}/${plan[1]}` : ""}</button>
+        <button class="subtab-btn ${sessionSubTab === "judge" ? "active" : ""}" data-subtab="judge">Task | Judge${d.plan_detail?.rows?.length ? ` · ${d.plan_detail.rows.length}` : ""}</button>
       </div>
     `,
     {
@@ -725,6 +728,13 @@ function renderSessionTab(entries) {
       },
     }
   );
+
+  if (sessionSubTab === "judge") {
+    paintSection("sd-judge", JSON.stringify([d.plan_detail, d.task]), () => renderJudgePanel(d.plan_detail, d.task), {
+      preserveScrollSelector: ".jt-wrap",
+    });
+    return;
+  }
 
   if (sessionSubTab === "checklist") {
     paintSection(
@@ -900,7 +910,7 @@ function parsePlanLines(markdown) {
   // ancestor prefix of a real leaf like "1.1.1" (observed: every single
   // parent number came through with a trailing dot, so NOTHING nested and
   // the whole tree flattened into dozens of bogus top-level roots).
-  const bulletRe = /^\s*-\s(?:\[( |x|X)\]\s+)?(\d+(?:\.\d+)*)\.?\s+(.*)$/;
+  const bulletRe = /^\s*-\s(?:\[( |x|X|○)\]\s+)?(\d+(?:\.\d+)*)\.?\s+(.*)$/;
   const items = [];
   let sectionPhase = null;
   for (const raw of markdown.split("\n")) {
@@ -915,7 +925,7 @@ function parsePlanLines(markdown) {
     const depth = (number.match(/\./g) || []).length;
     items.push({
       number, desc: desc.trim(), depth, phase: sectionPhase,
-      isLeaf: mark !== undefined, done: mark ? mark.toLowerCase() === "x" : false,
+      isLeaf: mark !== undefined, done: mark ? mark.toLowerCase() === "x" || mark === "○" : false,
     });
   }
   return items;
@@ -1293,6 +1303,60 @@ function renderPlanChecklist(planMarkdown, currentTask, currentTaskStartedAt, ta
         <div class="pc-detail">${detail}</div>
       </div>
     </div>
+  `;
+}
+
+// The planner's two scores per node, side by side -- the same rows the
+// Streamlit dashboard's Task | Judge table shows (JFI's
+// plan_db_tools.plan_judge_rows, pushed in the status snapshot as
+// plan_detail since this page can't read the session's DB): Judge (the
+// rule), Laya (answer and confidence), LLM (the tie-break, only when the two
+// disagreed and Laya was confident), Final, and who decided. The runbook and
+// design the Architect wrote follow, collapsed.
+const JUDGE_COLUMNS = ["#", "Level", "Task", "Judge", "Laya", "LLM", "Final", "Decided by", "Review", "Status"];
+
+function renderJudgePanel(detail, currentTask) {
+  const rows = detail?.rows || [];
+  if (!rows.length) {
+    return `<p class="empty-note">No plan nodes reported yet. (A session started before this view existed reports them from its next restart.)</p>`;
+  }
+  const current = (currentTask || "").trim();
+  const verdictClass = (v) => `jt-v jt-${String(v).split(" ")[0].toLowerCase()}`;
+  const decided = {};
+  for (const r of rows) if (r["Decided by"]) decided[r["Decided by"]] = (decided[r["Decided by"]] || 0) + 1;
+  const summary = Object.entries(decided).map(([k, n]) => `${esc(k)} ${n}`).join(" · ");
+
+  const body = rows.map((r) => {
+    const depth = (String(r["#"]).match(/\./g) || []).length;
+    const task = String(r.Task || "").replace(/^(· )+/, "");
+    const isCurrent = current && (current === task || current.startsWith(task.slice(0, 120)));
+    return `<tr class="${isCurrent ? "jt-current" : ""}">${JUDGE_COLUMNS.map((c) => {
+      const v = c === "Task" ? task : r[c] ?? "";
+      if (c === "Task") return `<td class="jt-task" style="padding-left:${10 + depth * 16}px">${esc(v)}</td>`;
+      if (["Judge", "Laya", "LLM", "Final"].includes(c) && v) return `<td><span class="${verdictClass(v)}">${esc(v)}</span></td>`;
+      return `<td>${esc(v)}</td>`;
+    }).join("")}</tr>`;
+  }).join("");
+
+  const table = (title, items, columns) => items?.length ? `
+    <details class="panel jt-extra">
+      <summary class="panel-head"><span>${title}</span><span class="n">${items.length}</span></summary>
+      <div class="db-table-wrap"><table class="db-table">
+        <thead><tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+        <tbody>${items.map((it) => `<tr>${columns.map((c) => `<td>${esc(it[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div>
+    </details>` : "";
+
+  return `
+    <div class="panel">
+      <div class="panel-head"><span>Task | Judge</span><span class="n">${rows.length} nodes${summary ? ` · ${summary}` : ""}</span></div>
+      <div class="db-table-wrap jt-wrap"><table class="db-table jt-table">
+        <thead><tr>${JUDGE_COLUMNS.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+        <tbody>${body}</tbody>
+      </table></div>
+    </div>
+    ${table("Runbook", detail.runbook, ["Name", "Command", "Verified"])}
+    ${table("Design", detail.design, ["Kind", "Key", "Text"])}
   `;
 }
 

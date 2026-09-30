@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 // `npm run dev` proxies the API calls this app makes (WebSockets to /view
 // and /report) to a jfi-master already running somewhere, so the frontend
 // can be developed with hot reload without rebuilding on every change.
-// Defaults to jfi-master's own default port (8765, see master_server.py's
+// Defaults to jfi-master's own default port (8765, see server/master.js's
 // DEFAULT_PORT); override with MASTER_DEV_PROXY_TARGET when jfi-master is
 // running on a different port, e.g.
 //   MASTER_DEV_PROXY_TARGET=ws://localhost:9988 npm run dev
