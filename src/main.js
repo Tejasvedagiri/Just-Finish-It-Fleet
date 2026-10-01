@@ -26,8 +26,9 @@ let sessionSubTab = "overview"; // "overview" | "checklist" | "judge" -- sub-tab
 // actual query logic lives entirely on the session side (see
 // socket_reporter.py's _handle_db_query), this side never runs SQL itself.
 const DB_TABLES = [
-  "BackgroundProcess", "ContextEntry", "DonePhase", "HistoryMessage",
-  "ImplementedFile", "Leaf", "LogEvent", "QueuedItem", "SessionNote", "SessionRecord", "UnlockedTool",
+  "BackgroundProcess", "ContextEntry", "DesignEntry", "Directive", "DonePhase", "Episode", "HistoryMessage",
+  "ImplementedFile", "Leaf", "LogEvent", "PlanEvent", "PlannerVerdict", "QueuedItem", "RunbookEntry",
+  "SessionNote", "SessionRecord", "UnlockedTool",
 ];
 let dbTable = DB_TABLES[0];
 let dbScoped = true;
@@ -739,8 +740,8 @@ function renderSessionTab(entries) {
   if (sessionSubTab === "checklist") {
     paintSection(
       "sd-checklist",
-      JSON.stringify([d.plan_markdown, d.task, d.task_started_at, d.task_history, d.phase, checklistPath]),
-      () => renderPlanChecklist(d.plan_markdown, d.task, d.task_started_at, d.task_history, d.phase),
+      JSON.stringify([d.plan_markdown, d.task, d.task_started_at, d.task_history, d.phase, checklistPath, d.plan_detail?.rows]),
+      () => renderPlanChecklist(d.plan_markdown, d.task, d.task_started_at, d.task_history, d.phase, d.plan_detail?.rows),
       {
         preserveScrollSelector: ".pc-sidebar",
         afterPaint: (el) => {
@@ -1167,7 +1168,60 @@ function renderAncestorTrail(byNumber, phaseKey, phaseLabel, selectedNumber) {
 // done/total plus every direct child as a clickable, timing-aware row
 // (reusing the exact same card the old flat list used, just wrapped as a
 // nav target); a leaf shows its own status/timing directly.
-function renderPlanDetail(byNumber, phaseKey, phaseLabel, selectedNumber, currentPhase, currentNumber, currentTaskStartedAt, historyByKey) {
+// The node's notes (what to implement and how) and references (where the
+// context is) come from plan_detail's judge rows, matched by display number:
+// the plan markdown this panel is built from carries only the description.
+// Mirrors note_points() in JFI's tool/plan_db_tools.py: the planners write
+// one long paragraph, often with numbered steps "(1) ... (2) ..." inside it.
+// Each step keeps its label; every other sentence is its own point. Only a
+// run counts as steps -- (1) (2) (3) or (a) (b) (c) -- so code like
+// "str (e) == e.message" isn't read as step "e".
+const NOTE_STEP = /\s*\((\d{1,2}|[a-h])\)\s+/g;
+const NOTE_SENTENCE = /(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\betc\.)(?<=[.!?])\s+(?=[A-Z`"'(])/;
+function notePoints(text) {
+  text = String(text || "").split(/\s+/).join(" ").trim();
+  const steps = [];
+  let expected = null;
+  for (const m of text.matchAll(NOTE_STEP)) {
+    const label = m[1];
+    if (label === "1" || label === "a") expected = label;
+    if (label !== expected) continue;
+    steps.push({ label, start: m.index, end: m.index + m[0].length });
+    expected = /\d/.test(label) ? String(Number(label) + 1) : String.fromCharCode(label.charCodeAt(0) + 1);
+  }
+  const sentences = (s) => s.replace(/^[\s;,]+|[\s;,]+$/g, "").split(NOTE_SENTENCE).map((x) => x.trim()).filter(Boolean);
+  const points = sentences(steps.length ? text.slice(0, steps[0].start) : text).map((t) => ["", t]);
+  steps.forEach((step, i) => {
+    const body = sentences(text.slice(step.end, i + 1 < steps.length ? steps[i + 1].start : text.length));
+    if (!body.length) return;
+    points.push([step.label, body[0].replace(/[;,]+$/, "")]);
+    for (const s of body.slice(1)) points.push(["", s]);
+  });
+  return points;
+}
+
+// Numbered steps nest under the point before them (usually "Steps:").
+function renderNotePoints(points) {
+  const items = [];
+  for (const [label, text] of points) {
+    if (label && items.length) items[items.length - 1].steps.push([label, text]);
+    else items.push({ text: label ? `${label}. ${text}` : text, steps: [] });
+  }
+  return `<ul class="pc-d-notes">${items.map((it) => `
+    <li class="pc-d-point">${esc(it.text)}${it.steps.length ? `<ol class="pc-d-steps">${it.steps
+      .map(([label, text]) => `<li><span class="pc-d-step">${esc(label)}.</span>${esc(text)}</li>`).join("")}</ol>` : ""}</li>`).join("")}
+  </ul>`;
+}
+
+function renderNodeNotes(row) {
+  if (!row) return "";
+  const refs = (row.References || "").split(", ").filter(Boolean);
+  return `
+    ${row.Notes ? `<div class="pc-d-lbl pc-d-lbl-gap">Notes</div>${renderNotePoints(notePoints(row.Notes))}` : ""}
+    ${refs.length ? `<div class="pc-d-lbl pc-d-lbl-gap">References</div><ul class="pc-d-refs">${refs.map((r) => `<li><code>${esc(r)}</code></li>`).join("")}</ul>` : ""}`;
+}
+
+function renderPlanDetail(byNumber, phaseKey, phaseLabel, selectedNumber, currentPhase, currentNumber, currentTaskStartedAt, historyByKey, judgeRow) {
   const node = byNumber[selectedNumber];
   if (!node) return `<p class="empty-note">Nothing selected.</p>`;
   const kids = sortByNumber(Object.values(node.children));
@@ -1180,6 +1234,7 @@ function renderPlanDetail(byNumber, phaseKey, phaseLabel, selectedNumber, curren
     html += `
       <div class="pc-d-head"><span class="pc-d-num">${esc(node.number)}</span><span class="pc-d-status pc-d-status-parent">${d}/${t} done</span></div>
       <div class="pc-d-desc">${esc(node.desc)}</div>
+      ${renderNodeNotes(judgeRow)}
       <div class="pc-d-children">
         <div class="pc-d-lbl">Children</div>
         ${kids.map((c) => renderLeafCard(c, currentPhase, currentNumber, currentTaskStartedAt, historyByKey, phaseKey)).join("")}
@@ -1189,6 +1244,7 @@ function renderPlanDetail(byNumber, phaseKey, phaseLabel, selectedNumber, curren
     html += `
       <div class="pc-d-head"><span class="pc-d-num">${esc(node.number)}</span><span class="pc-d-status ${node.done ? "pc-d-status-done" : isCurrent ? "pc-d-status-current" : "pc-d-status-todo"}">${node.done ? "done" : isCurrent ? "in progress" : "todo"}</span></div>
       <div class="pc-d-desc">${esc(node.desc)}</div>
+      ${renderNodeNotes(judgeRow)}
       ${renderLeafCard(node, currentPhase, currentNumber, currentTaskStartedAt, historyByKey, phaseKey, { bare: true })}
     `;
   }
@@ -1229,7 +1285,7 @@ function renderLeafCard(node, currentPhase, currentNumber, currentTaskStartedAt,
     </button>`;
 }
 
-function renderPlanChecklist(planMarkdown, currentTask, currentTaskStartedAt, taskHistory, currentPhase) {
+function renderPlanChecklist(planMarkdown, currentTask, currentTaskStartedAt, taskHistory, currentPhase, judgeRows) {
   const tree = buildPlanTree(planMarkdown);
   const phaseKeys = Object.keys(tree);
   if (!phaseKeys.length) {
@@ -1291,7 +1347,8 @@ function renderPlanChecklist(planMarkdown, currentTask, currentTaskStartedAt, ta
 
   const sidebar = renderPlanSidebar(tree, phaseKeys, phaseCounts, selectedKey, currentPhase, currentNumber);
   const detail = selectedNumber
-    ? renderPlanDetail(byNumber, activePhase, PHASE_LABELS[activePhase] || activePhase, selectedNumber, currentPhase, currentNumber, currentTaskStartedAt, historyByKey)
+    ? renderPlanDetail(byNumber, activePhase, PHASE_LABELS[activePhase] || activePhase, selectedNumber, currentPhase, currentNumber, currentTaskStartedAt, historyByKey,
+        (judgeRows || []).find((r) => r["#"] === selectedNumber))
     : `<p class="empty-note">Nothing in this section yet.</p>`;
 
   return `
@@ -1313,7 +1370,7 @@ function renderPlanChecklist(planMarkdown, currentTask, currentTaskStartedAt, ta
 // rule), Laya (answer and confidence), LLM (the tie-break, only when the two
 // disagreed and Laya was confident), Final, and who decided. The runbook and
 // design the Architect wrote follow, collapsed.
-const JUDGE_COLUMNS = ["#", "Level", "Task", "Judge", "Laya", "LLM", "Final", "Decided by", "Review", "Status"];
+const JUDGE_COLUMNS = ["#", "Level", "Task", "Notes", "References", "Judge", "Laya", "LLM", "Final", "Decided by", "Review", "Status"];
 
 function renderJudgePanel(detail, currentTask) {
   const rows = detail?.rows || [];
@@ -1333,6 +1390,7 @@ function renderJudgePanel(detail, currentTask) {
     return `<tr class="${isCurrent ? "jt-current" : ""}">${JUDGE_COLUMNS.map((c) => {
       const v = c === "Task" ? task : r[c] ?? "";
       if (c === "Task") return `<td class="jt-task" style="padding-left:${10 + depth * 16}px">${esc(v)}</td>`;
+      if (c === "Notes" || c === "References") return `<td class="jt-notes" title="${esc(v)}">${esc(v)}</td>`;
       if (["Judge", "Laya", "LLM", "Final"].includes(c) && v) return `<td><span class="${verdictClass(v)}">${esc(v)}</span></td>`;
       return `<td>${esc(v)}</td>`;
     }).join("")}</tr>`;

@@ -366,8 +366,16 @@ button { font-family: inherit; cursor: pointer; }
 .pc-d-status-todo { color: var(--ink-faint); }
 .pc-d-status-parent { color: var(--blue); }
 .pc-d-desc { margin-top: 14px; color: var(--ink); font-size: 13px; line-height: 1.65; max-width: 560px; }
+.pc-d-notes { margin: 6px 0 0; padding: 10px 14px 10px 28px; border: 1px solid var(--line-soft); background: var(--bg-log); color: var(--ink); font-size: 12.5px; line-height: 1.6; max-width: 760px; overflow-wrap: anywhere; }
+.pc-d-notes .pc-d-point { margin: 3px 0; }
+.pc-d-steps { list-style: none; margin: 2px 0 6px; padding-left: 4px; }
+.pc-d-steps li { margin: 3px 0; padding-left: 26px; text-indent: -26px; color: var(--ink); }
+.pc-d-step { display: inline-block; width: 26px; text-indent: 0; color: var(--accent); }
+.pc-d-refs { margin: 6px 0 0; padding-left: 18px; color: var(--ink-dim); font-size: 12.5px; line-height: 1.7; }
+.pc-d-refs code { color: var(--accent); font-family: var(--font-ui); overflow-wrap: anywhere; }
 .pc-d-children { margin-top: 20px; }
 .pc-d-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 8px; }
+.pc-d-lbl-gap { margin-top: 16px; margin-bottom: 0; }
 .pc-time-slot-bare { margin-top: 14px; align-items: flex-start; text-align: left; }
 
 /* ---------- tasks-vs-tokens heatmap ---------- */
@@ -397,6 +405,7 @@ footer { color: var(--ink-faint); font-size: 11px; text-align: center; padding-t
 /* Task | Judge sub-tab (renderJudgePanel). */
 .jt-wrap { max-height: 70vh; border: none; }
 .jt-table td.jt-task { max-width: 560px; color: var(--ink); }
+.jt-table td.jt-notes { max-width: 320px; color: var(--ink-dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jt-table tr.jt-current td { background: var(--bg-card); }
 .jt-table tr.jt-current td:first-child { box-shadow: inset 2px 0 0 var(--red); }
 .jt-v { font-weight: 600; }
