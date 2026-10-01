@@ -32,14 +32,7 @@ Open **http://localhost:8765**. After pulling changes, run `npm run build` again
 
 ### 2. Point JFI sessions at it
 
-In JFI, sync the `master` extra (it adds the WebSocket client), listing every other extra you use too:
-
-```bash
-cd /path/to/Just-Finish-It
-uv sync --extra web --extra master
-```
-
-Then set this in the `.env` of each project JFI runs in — `uv run create-env` asks for it too, and accepts just the port:
+JFI already includes the WebSocket client (`websockets` is one of its base dependencies), so there's nothing extra to install. Set this in the `.env` of each project JFI runs in — `uv run create-env` asks for it too, and accepts just the port:
 
 ```bash
 MASTER_WS_URL=ws://<master-host>:8765/report
